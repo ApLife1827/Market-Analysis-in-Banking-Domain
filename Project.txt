@@ -1,0 +1,80 @@
+//Read and load json dataset
+val df = spark.read.option("multiline","true").json("/user/avdhootpatil2016gmail/bank_edited.json")
+
+// Displays the content of the DataFrame to stdout
+df.show()
+
+// Count people by age
+df.groupBy("age").count().show()
+
+//Average Age
+df.select(avg($"Age")).show()
+
+//Minimum Age
+df.select(min($"Age")).show()
+
+//Maximum Age
+df.select(max($"Age")).show()
+
+
+// Register the DataFrame as a SQL temporary view
+df.createOrReplaceTempView("bank")
+
+val sqlDF = spark.sql("SELECT * FROM bank")
+sqlDF.show()
+
+//Average of balance
+df.select(avg($"balance")).show()
+
+//Median of balance
+val median = spark.sql("SELECT percentile_approx(balance, 0.5) FROM bank").show() 
+                          OR
+df.select($"balance").stat.approxQuantile("balance", Array(0.5), 0.0)
+
+//Age matters in marketing subscription for deposit
+val agedata = spark.sql("select age, count(*) as number from bank where y='yes' group by age order by age")
+agedata.show()
+
+//marital status mattered for a subscription to deposit
+val maritaldata = spark.sql("select marital, count(*) as number from bank where y='yes' group by marital order by number")
+maritaldata.show()
+
+//Age and marital status together mattered for a subscription to deposit scheme
+val agemaritaldata = spark.sql("select age,marital, count(*) as number from bank where y='yes' group by age,marital order by number")
+agemaritaldata.show()
+
+//Feature Engineering
+val agedata = spark.udf.register("agedata",(age:Int) => {
+if (age < 20)
+"Teen"
+else if (age > 20 && age <= 32)
+"Young"
+else if (age > 33 && age <= 55)
+"Middle Aged"
+else
+"old"
+})
+
+//Replacing the old age column with the new age column
+
+val banknewDF = df.withColumn("age",agedata(df("age")))
+banknewDF.show()
+
+banknewDF.createOrReplaceTempView("banknewtable")
+
+//which age group subscribed the most
+
+val targetage = spark.sql("select age, count(*) as number from banknewtable where y='yes' group by age order by number desc")
+targetage.show()
+
+import org.apache.spark.ml.feature.{IndexToString, StringIndexer}
+
+//pipelining with string Indexer and fitting model
+val indexer = new StringIndexer().setInputCol("age").setOutputCol("ageIndex").fit(banknewDF)
+
+//assigns generated value of index of the column, by feature engineering
+val indexed = indexer.transform(banknewDF)
+
+println(s"Transformed string column '${indexer.getInputCol}' " +s"to indexed column '${indexer.getOutputCol}'")
+
+indexed.select($"age",$"ageIndex").show()
